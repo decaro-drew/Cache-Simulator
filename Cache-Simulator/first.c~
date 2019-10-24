@@ -1,0 +1,234 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+//figure out how to find something in an array
+//use logical ops to manipulate hex to binary
+//figure out replacement
+//party rock
+
+//changed the parameters for cache, it is now (sets, lines) used to be (sets/lines, Bsize)
+
+long** createCache(int sets, int lines);
+int readC(long** cache, int sets, int lines, long int tagindex, long int setindex);
+long** writeC(long** cache, int sets, int lines, long int tagindex, long int setindex, char* policy);
+
+
+int main(int argc, char** argv){
+  /* if(argc != 5){
+    printf("error\n");
+    return 0;
+  }
+  */
+  int Csize = atoi(argv[1]);
+  // printf("Csize: %d\n", Csize);
+  int Bsize = atoi(argv[2]);
+  //printf("Bsize: %d\n", Bsize);
+  char* policy = argv[3];
+  // printf("policy: %s\n", policy);
+  char* assoc = argv[4];
+  //printf("assoc: %s\n", assoc);
+  FILE* trace = fopen(argv[5], "r");
+  if(trace == NULL){
+    printf("error in file\n");
+    return 0;
+  }
+  
+  int read = 0;
+  int write=0;
+  int hit=0;
+  int miss=0;
+
+  // int offsetbits = log(Bsize)/log(2);
+  int lines=1;
+  int sets=1;
+  //int tagbits;
+  long int** cache;
+  int i;
+
+  //creating an nway assoc cache
+  if(strlen(assoc) > 6){
+    int n =0;
+    i = 6;
+    char x[10];
+    for(i = 7; i <= strlen(assoc); i++){
+	x[i-7] = assoc[i -1];
+    }	
+    x[i-7] = assoc[i - 1];
+    n = atoi(x);
+    // printf("n: %d\n", n);
+    lines = Csize/Bsize;
+    // printf("lines: %d\n", lines);
+    // sets = lines/n;
+    // lines = n;
+    printf("sets: %d\n", sets);
+    // int p = log(lines)/log(2);
+    // tagbits = Bsize - p - offsetbits;
+    cache = createCache(sets, lines);
+  } 
+
+  //creating a direct cache
+  else if(strcmp(assoc, "direct") == 0){ 
+      sets = Csize/Bsize;
+      // int p =log(sets)/log(2);
+      //tagbits = Bsize - p -offsetbits;
+      cache = createCache(sets, lines);
+  }
+
+  //creating a fully assoc cache
+  else{
+    lines = Csize/Bsize;
+    // int p = log(lines)/log(2);
+    // tagbits = Bsize - p - offsetbits;
+    cache = createCache(sets, lines);
+  }
+
+  if(Csize != (sets * lines * Bsize)){
+      printf("cache is wrong size\n");
+      return 0;
+  }
+  //  printf("sets: %d\n", sets);
+  // printf("lines: %d\n", lines);
+  
+
+  int s = log2(sets);
+  int b = log2(Bsize);
+
+
+  long int setmask = ((1<<s)-1);
+  // printf("setmask: %lx", setmask);
+  char c;
+  long long int data;
+
+  while(fscanf(trace, "%c" "%llx", &c, &data) != EOF){
+  
+    long int setindex =(data>>b)&setmask;
+    //long int setindex =  (data>>b)&(sets-1);
+    long int tagindex = data>>(b+s);   
+    //  printf("set: %lx   tag:%lx\n",setindex,tagindex);
+    if(c == 'R'){//do a READ
+      //  read++;
+      //  printf("in read\n");
+      int a = readC(cache, sets, lines, tagindex, setindex);
+      if(a == 1){
+	hit++;
+	//	read++;
+      }
+      else{
+	//check if set is full, if yes, do replacement
+        cache = writeC(cache, sets, lines, tagindex, setindex, policy);
+	miss++;
+	//	write++;
+	read++;
+      }
+    }
+    else if(c == 'W'){  //do a WRITE 
+      write++;
+      //  printf("in write\n");
+      int a = readC(cache, sets, lines, tagindex, setindex);
+      if(a == 1){
+	hit++;
+	//	write++;
+      }	
+      else{
+	//check if set is full, if yes, do replacement
+        cache = writeC(cache, sets, lines, tagindex, setindex, policy);
+	miss++;
+        read++;
+	//	 write++;
+      }
+    }
+  }
+  
+
+  
+  printf("Memory reads: %d\n", read);
+  printf("Memory writes: %d\n", write);
+  printf("Cache hits: %d\n", hit);
+  printf("Cache misses: %d\n", miss);
+ 
+  return 0;
+}
+
+
+
+
+
+
+long int** createCache(int sets, int lines){
+  //use sets or lines as cols, tag as data at row
+  int i, j;
+  long int** cache = (long int**)malloc(sizeof(long int*)* sets);
+  for(i = 0; i < sets; i++){
+    cache[i] =(long int*)malloc(sizeof(long int)* lines);
+  }
+  for(i=0; i<sets; i++)
+    for(j=0; j<lines; j++)
+      cache[i][j]=0;
+  return cache;
+}
+
+int readC(long int** cache, int sets, int lines, long int tagindex, long int setindex){
+  int i, j;
+  for(i = 0; i < sets; i++){
+    if(i == setindex){
+      //printf("above second loop in read\n");
+      for(j = 0; j < lines; j++){
+	  //location found
+	  if(cache[i][j] == tagindex){
+	    //    printf("second if in read is hit\n");
+	    return 1;
+	  }
+       }
+     }
+   }
+  // printf("read miss i guess\n");
+  return 0;
+  }
+  
+  //cache miss
+  
+// printf("error in read\n");
+ 
+
+long int** writeC(long int** cache, int sets, int lines, long int tagindex, long int setindex, char* policy){
+ int i, j;
+  for(i = 0; i < sets; i++){
+    if(i == setindex){
+      for(j = 0; j < lines; j++){
+	  if(cache[i][j] == 0){
+	    // printf("about to write in tag\n");
+	    //miss, so write it in
+	    cache[i][j] = tagindex;
+	    // printf("cache[set][tag] = %lx\n", cache[i][j]);
+	    return cache;
+ 	 }
+      }
+      //  printf("about to do replacement:\n");
+      //FIFO
+      if(strcmp(policy, "fifo") == 0){
+	for(j = 0; j<lines; j++){
+	  if((j + 1) < lines)
+	    cache[i][j] = cache[i][j+1];
+	  else
+	    cache[i][j] = tagindex;
+	  // return cache;
+	}
+	return cache;
+      }
+      //LRU
+      else {
+	for(j = 0; j<lines; j++){
+	  if((j + 1) < lines){
+	     cache[i][j+1] = cache[i][j];
+	     if(j == 0)
+	       cache[i][j] = tagindex;
+	  }
+	}
+       return cache;
+      }
+    }
+  }
+  return cache;
+}
